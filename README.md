@@ -1,7 +1,7 @@
 # FTDI EEPROM cloner
 This simple Python program makes EEPROM dumps of FTDI-based devices, and can restore the entire EEPROM from a file on your computer.
 
-Besides backup and analysis purposes, this program also allows to clone devices that use an FTDI chip with a proprietary signature in their EEPROM. This signature often prevents using custom FTDI-based boards with specific software such as FPGA toolchains, even though the software perfectly supports the FTDI chip.
+Aside from backup and analysis purposes, this program also allows cloning of devices that use an FTDI chip with a proprietary signature in their EEPROM. This signature often prevents using custom FTDI-based boards with specific software such as FPGA toolchains, even though the software perfectly supports the FTDI chip.
 
 Note that only raw EEPROM data is manipulated. The program currently has no checks on the correctness of the EEPROM contents you read or write. It does NOT update the checksum nor does it automatically generate serial numbers for your device.
 
