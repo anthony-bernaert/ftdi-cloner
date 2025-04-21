@@ -11,6 +11,7 @@ import time
 FTDIDeviceTypes = {
     0:  [  "FT232BM"    , 256],
     1:  [  "FT232AM"    , 0] ,
+    4:  [  "FT2232C/D"  , 256],
     5:  [  "FT232R"     , 128],
     6:  [  "FT2232H"    , 256],
     7:  [  "FT4232H"    , 256],
