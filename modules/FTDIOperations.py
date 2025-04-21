@@ -97,16 +97,16 @@ class FTDIOperations:
                         exit(-1)
                 else:
                     write_file = file
-            confirmed = confirmFunc(f"CAUTION: Writing an invalid EEPROM file can cause enumeration failures and hence brick the device!\nBy proceeding, the EEPROM contents will be overwritten with the data of the file located at\n{os.path.abspath(write_file)}")
+            confirmed = confirmFunc(f"\nCAUTION: Writing an invalid EEPROM file can cause enumeration failures and hence brick the device!\nBy proceeding, the EEPROM contents will be overwritten with the data of the file located at\n{os.path.abspath(write_file)}")
             if confirmed:
-                self.write_eeprom(device, write_file)
+                self.write_eeprom(device, write_file, confirmFunc)
             else:
                 if self.verbose:
                     print("Write operation aborted.")
 
         elif operation.is_erase():
             # Do erase
-            confirmed = confirmFunc(f"NOTE: Erasing the EEPROM will reset the device to all of its default settings (including serial number and port functions).")
+            confirmed = confirmFunc(f"\nNOTE: Erasing the EEPROM will reset the device to all of its default settings (including serial number and port functions).")
             if confirmed:
                 self.erase_eeprom(device)
             else:
@@ -117,7 +117,7 @@ class FTDIOperations:
             print('\nDone. Ready for next operation...')
 
     # Write the EEPROM of the passed device based on the contents of a given file
-    def write_eeprom(self, device_info : DeviceInfoDetail, file : str):
+    def write_eeprom(self, device_info : DeviceInfoDetail, file : str, confirm_func : Callable[[str], bool]):
         with open(file, 'rb') as bin:
             # Open the selected FTDI device
             device = ftdi.open(device_info["index"])
@@ -127,10 +127,22 @@ class FTDIOperations:
 
             # Open the input file, prepare to write
             eeprom_size = self._get_eeprom_size(device_info)
-            data = bin.read()
+            data = bytearray(bin.read())
             if len(data) != eeprom_size:
-                print(f"Input file size mismatch, expecting EEPROM size of {eeprom_size} bytes, got {len(data)} bytes.")
+                print(f"Input file size mismatch, expecting EEPROM size of {eeprom_size} bytes, got {len(data)} bytes. Exiting...")
                 exit(-1)
+
+            # Verify the checksum of the input data
+            checksum = self._get_eeprom_checksum(data)
+            checksum_low = checksum & 0xFF
+            checksum_high = (checksum >> 8) & 0xFF
+            if checksum_low != data[-2] or checksum_high != data[-1]:
+                if not confirm_func(f"WARNING: The input file contains an invalid checksum. Expecting {hex(checksum_low)} {hex(checksum_high)}, got {hex(data[-2])} {hex(data[-1])}."):
+                    print("Exiting...")
+                    exit(-1)
+                if confirm_func("Replace incorrect checksum with calculated values?"):
+                    data[-2] = checksum_low
+                    data[-1] = checksum_high
 
             # Write all 16-bit words in a loop
             for i in range(int(eeprom_size / 2)):
@@ -140,18 +152,22 @@ class FTDIOperations:
                 ftdi.call_ft(ftdi.ftd2xx._ft.FT_WriteEE, device.handle, i, word)
             
             if self.verbose:
-                print("Write done. Current EEPROM dump:")
-                print(hexdump(self.ft.read_eeprom(0, len(data))))
+                print("Write done.")
             
             # 'Cycle' the USB device to make the changes active
             if self.verbose:
                 print("Cycling the USB port. Please wait...")
-            device.cyclePort()
-            time.sleep(3)
+            try:
+                device.cyclePort()
+                time.sleep(3)
+            except:
+                if self.verbose:
+                    print("WARNING: Port cycling not supported on this system: please disconnnect and reconnect the USB device manually for changes to take effect.")
             device.close()
 
     # Read the EEPROM of the passed device into a given target file
     def read_eeprom(self, device_info : DeviceInfoDetail, file : str):
+        os.makedirs(os.path.dirname(file), exist_ok=True)
         with open(file, 'wb') as bin:
             device = ftdi.open(device_info["index"])
             if device == None:
@@ -187,11 +203,15 @@ class FTDIOperations:
         eeprom_size = self._get_eeprom_size(device_info)
         ftdi.call_ft(ftdi.ftd2xx._ft.FT_EraseEE, device.handle)
 
-        # 'Cycle' the USB device to make the changes active
+        # 'Cycle' the USB device to make the changes active (only supported on Windows)
         if self.verbose:
             print("Cycling the USB port. Please wait...")
-        device.cyclePort()
-        time.sleep(3)
+        try:
+            device.cyclePort()
+            time.sleep(3)
+        except:
+            if self.verbose:
+                print("WARNING: Port cycling not supported on this system: please disconnnect and reconnect the USB device manually for changes to take effect.")
         device.close()
 
     def _get_eeprom_size(self, device_info : DeviceInfoDetail):
@@ -206,3 +226,13 @@ class FTDIOperations:
             print("This device has no EEPROM. Exiting...")
             exit(-1)
         return eeprom_size
+
+    def _get_eeprom_checksum(self, data : bytearray):
+        checksum = 0xAAAA
+        for i in range(int(len(data)/2) - 1):
+            value = data[i * 2]
+            value += data[i * 2 + 1] << 8
+            checksum = (value ^ checksum) & 0xFFFF
+            checksum = ((checksum << 1) | (checksum >> 15)) & 0xFFFF
+        print(f"Calculated checksum: {hex(checksum)}")
+        return checksum
